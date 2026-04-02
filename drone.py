@@ -1,15 +1,64 @@
 import sys
 import socket
 import re
+import cv2
+import numpy as np
 from PyQt6.QtWidgets import (QApplication, QWidget, QPushButton, QGridLayout, 
                              QVBoxLayout, QHBoxLayout, QLineEdit, QCheckBox, 
                              QSlider, QFrame, QLabel, QSizePolicy, QDialog)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect, QSize
+from PyQt6.QtGui import QKeyEvent, QImage, QPixmap
+
+# --- VIDEO THREAD (Port 11111) ---
+class TelloVideoThread(QThread):
+    frame_received = pyqtSignal(QImage)
+
+    def __init__(self):
+        super().__init__()
+        self.running = True
+
+    def run(self):
+        # Tello sends video to port 11111 via UDP
+        # Simplified URL for better compatibility on macOS/Homebrew FFMPEG
+        video_url = 'udp://@0.0.0.0:11111'
+        
+        # Adding a small delay to ensure 'streamon' command has reached the drone
+        self.msleep(1000)
+        
+        cap = cv2.VideoCapture(video_url)
+        
+        # Optional: Set buffer size to reduce latency
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+
+        if not cap.isOpened():
+            print("Error: Could not open video stream. Retrying with fallback...")
+            # Fallback for some OpenCV versions
+            cap = cv2.VideoCapture(video_url, cv2.CAP_FFMPEG)
+
+        if not cap.isOpened():
+            print("Error: Video stream failed to open. Check if drone is connected and 'streamon' sent.")
+            return
+
+        while self.running:
+            ret, frame = cap.read()
+            if ret:
+                # Convert BGR (OpenCV) to RGB (Qt)
+                height, width, channel = frame.shape
+                bytes_per_line = 3 * width
+                q_img = QImage(frame.data, width, height, bytes_per_line, QImage.Format.Format_RGB888).rgbSwapped()
+                self.frame_received.emit(q_img)
+            else:
+                # If frame capture fails, don't crash, just wait and retry
+                self.msleep(10)
+        
+        cap.release()
+
+    def stop(self):
+        self.running = False
+        self.wait()
 
 # --- PATTERN DESIGNER DIALOG ---
 class PatternDialog(QDialog):
-    # Static variable to persist saved pattern between dialog opens
     last_saved_state = None 
 
     def __init__(self, parent=None):
@@ -33,7 +82,6 @@ class PatternDialog(QDialog):
         layout = QVBoxLayout()
         layout.setSpacing(10)
         
-        # Header with Info and "Display Saved"
         header_layout = QHBoxLayout()
         info_label = QLabel("Click pixels to cycle colors:\nGray -> Red -> Blue -> Purple")
         info_label.setStyleSheet("color: white; font-size: 11px; font-weight: bold;")
@@ -44,10 +92,9 @@ class PatternDialog(QDialog):
             background-color: #009688; color: white; border-radius: 4px; font-size: 11px;
         """)
         self.btn_load_saved.clicked.connect(self.load_saved_pattern)
-        # Disable if nothing is saved yet
+        
         if PatternDialog.last_saved_state is None:
             self.btn_load_saved.setEnabled(False)
-            self.btn_load_saved.setAlpha = 0.5
 
         header_layout.addWidget(info_label, 1)
         header_layout.addWidget(self.btn_load_saved)
@@ -67,9 +114,7 @@ class PatternDialog(QDialog):
             
         layout.addWidget(grid_widget)
 
-        # Footer Controls
         controls = QHBoxLayout()
-        
         btn_clear = QPushButton("Clear All")
         btn_clear.clicked.connect(self.clear_grid)
         btn_clear.setStyleSheet("background-color: #f44336; color: white; min-height: 40px;")
@@ -119,7 +164,7 @@ class PatternDialog(QDialog):
         self.pattern_string = result
         self.accept()
 
-# --- WORKER THREAD FOR COMMAND RESPONSES (Port 8889) ---
+# --- WORKER THREAD FOR COMMANDS (Port 8889) ---
 class TelloWorker(QThread):
     response_received = pyqtSignal(str)
 
@@ -150,7 +195,7 @@ class TelloWorker(QThread):
             self.current_command = command
             self.start()
 
-# --- STATUS THREAD FOR TELEMETRY (Port 8890) ---
+# --- STATUS THREAD (Port 8890) ---
 class TelloStatusThread(QThread):
     status_updated = pyqtSignal(dict)
 
@@ -192,8 +237,16 @@ class TelloFullPanel(QWidget):
         self.status_thread.status_updated.connect(self.handle_status_update)
         self.status_thread.start()
 
+        # Initialize Video Thread
+        self.video_thread = TelloVideoThread()
+        self.video_thread.frame_received.connect(self.update_video_frame)
+
         self.initUI()
         self.send_cmd('command')
+        # Start Video Stream on initialization
+        self.send_cmd('streamon')
+        self.video_thread.start()
+        
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def handle_response(self, text):
@@ -201,20 +254,23 @@ class TelloFullPanel(QWidget):
         self.setWindowTitle(f"Tello - Status: {text}")
 
     def handle_status_update(self, stats):
-        if 'bat' in stats:
-            self.update_stat('bat', stats['bat'])
-        
+        if 'bat' in stats: self.update_stat('bat', stats['bat'])
         if 'templ' in stats and 'temph' in stats:
             avg_temp = (int(stats['templ']) + int(stats['temph'])) // 2
             self.update_stat('temp', str(avg_temp))
 
     def update_stat(self, stat_type, value):
-        if stat_type == 'bat': 
-            self.lbl_bat.setText(f"🔋 {value}%")
-        elif stat_type == 'temp': 
-            self.lbl_temp.setText(f"🌡️ {value}°C")
-        elif stat_type == 'speed': 
-            self.lbl_speed.setText(f"⚡ {value}")
+        if stat_type == 'bat': self.lbl_bat.setText(f"🔋 {value}%")
+        elif stat_type == 'temp': self.lbl_temp.setText(f"🌡️ {value}°C")
+        elif stat_type == 'speed': self.lbl_speed.setText(f"⚡ {value}")
+
+    def update_video_frame(self, q_img):
+        # Scale the image to fit the label while maintaining aspect ratio
+        pixmap = QPixmap.fromImage(q_img)
+        scaled_pixmap = pixmap.scaled(self.video_display.size(), 
+                                      Qt.AspectRatioMode.KeepAspectRatio, 
+                                      Qt.TransformationMode.SmoothTransformation)
+        self.video_display.setPixmap(scaled_pixmap)
 
     def send_cmd(self, cmd):
         self.worker.send(cmd)
@@ -275,7 +331,7 @@ class TelloFullPanel(QWidget):
             QCheckBox { color: white; font-weight: bold; padding: 5px; border-radius: 4px; }
             QLabel#Terminal { background-color: #000; color: #0f0; font-family: 'Courier New'; font-weight: bold; padding-left: 10px; border: 1px solid #334466; border-top-left-radius: 4px; border-bottom-left-radius: 4px; border-right: none; }
             QLabel#StatusBar { background-color: #0a1424; color: #fff; font-weight: bold; border: 1px solid #334466; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
-            QLabel#VideoPlaceholder { background-color: #000; border: 2px solid #334466; color: #555; font-size: 24px; font-weight: bold; border-radius: 4px; }
+            QLabel#VideoDisplay { background-color: #000; border: 2px solid #334466; border-radius: 4px; }
             QLabel#VisualizerPlaceholder { background-color: #000; border: 1px solid #334466; color: #444; font-size: 14px; font-weight: bold; border-radius: 4px; }
             QSlider::groove:horizontal { border: 1px solid #999; height: 8px; background: white; margin: 2px 0; border-radius: 4px; }
             QSlider::handle:horizontal { background: #334466; border: 1px solid #555; width: 14px; height: 18px; margin: -6px 0; border-radius: 4px; }
@@ -285,9 +341,10 @@ class TelloFullPanel(QWidget):
         main_vbox.setContentsMargins(15, 15, 15, 15)
         main_vbox.setSpacing(15)
 
+        # Header
         header_layout = QHBoxLayout()
         header_layout.setSpacing(0)
-        self.terminal_display = QLabel(" > Waiting for command...")
+        self.terminal_display = QLabel(" > Initializing Video Stream...")
         self.terminal_display.setObjectName("Terminal")
         header_layout.addWidget(self.terminal_display, 1)
 
@@ -309,14 +366,15 @@ class TelloFullPanel(QWidget):
         header_container.setLayout(header_layout)
         main_vbox.addWidget(header_container)
 
+        # Middle (Video & Grid 1)
         middle_layout = QHBoxLayout()
         middle_layout.setSpacing(15)
 
-        self.video_placeholder = QLabel("VIDEO FEED\n(Reserved)")
-        self.video_placeholder.setObjectName("VideoPlaceholder")
-        self.video_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.video_placeholder.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        middle_layout.addWidget(self.video_placeholder, 6) 
+        self.video_display = QLabel()
+        self.video_display.setObjectName("VideoDisplay")
+        self.video_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.video_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        middle_layout.addWidget(self.video_display, 6) 
 
         panel1_container = QFrame()
         panel1_layout = QGridLayout(panel1_container)
@@ -356,10 +414,10 @@ class TelloFullPanel(QWidget):
 
         main_vbox.addWidget(self.create_separator())
 
+        # Bottom (Grid 2, Visualizer, Grid 3)
         bottom_layout = QHBoxLayout()
         bottom_layout.setSpacing(15)
 
-        # Left Column: EXT Module (LED controls)
         panel3_container = QFrame()
         panel3_layout = QGridLayout(panel3_container)
         panel3_layout.setContentsMargins(0, 0, 0, 0)
@@ -394,17 +452,14 @@ class TelloFullPanel(QWidget):
 
         panel3_layout.addWidget(text_input_container, 2, 0, 1, 2)
         panel3_layout.addWidget(btn_pattern, 2, 2)
-        
         bottom_layout.addWidget(panel3_container, 1)
 
-        # Middle Column: Gamepad Visualizer
         self.visualizer_placeholder = QLabel("GAMEPAD VISUALIZER\n(Reserved)")
         self.visualizer_placeholder.setObjectName("VisualizerPlaceholder")
         self.visualizer_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.visualizer_placeholder.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         bottom_layout.addWidget(self.visualizer_placeholder, 1)
 
-        # Right Column: Basic Controls (Motor, Flip, Photo, Speed)
         section2_container = QFrame()
         section2 = QGridLayout(section2_container)
         section2.setContentsMargins(0, 0, 0, 0)
@@ -446,26 +501,21 @@ class TelloFullPanel(QWidget):
         back_flip.clicked.connect(lambda: self.send_cmd('flip b'))
         section2.addWidget(back_flip, 2, 1)
         
-        # --- VERTICALLY STACKED SPEED COMPONENT ---
         speed_container = QFrame()
         speed_layout = QVBoxLayout(speed_container)
         speed_layout.setContentsMargins(5, 0, 5, 0)
         speed_layout.setSpacing(2)
-        
         speed_label = QLabel("Set Speed:")
         speed_label.setStyleSheet("color: white; font-weight: bold; font-size: 10px;")
         speed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
         speed_slider = QSlider(Qt.Orientation.Horizontal)
         speed_slider.setRange(10, 100)
         speed_slider.valueChanged.connect(lambda val: self.send_cmd(f'speed {val}'))
-        
         speed_layout.addWidget(speed_label)
         speed_layout.addWidget(speed_slider)
         section2.addWidget(speed_container, 2, 2)
 
         bottom_layout.addWidget(section2_container, 1)
-        
         main_vbox.addLayout(bottom_layout, 4)
         self.setLayout(main_vbox)
 
@@ -487,7 +537,9 @@ class TelloFullPanel(QWidget):
 
     def closeEvent(self, event):
         self.status_thread.stop()
+        self.video_thread.stop()
         self.status_thread.wait()
+        self.video_thread.wait()
         super().closeEvent(event)
 
 if __name__ == '__main__':
