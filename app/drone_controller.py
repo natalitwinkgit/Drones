@@ -33,11 +33,13 @@ class TelloWorker(QThread):
             finally:
                 self.current_command = None
 
-    def send(self, command):
-        """Triggers the thread to send a command if it isn't already busy."""
-        if not self.isRunning():
-            self.current_command = command
-            self.start()
+    def send(self, cmd):
+        print("SEND:", cmd)  # 👈 THIS is where it goes
+
+        try:
+            self.sock.sendto(cmd.encode("utf-8"), self.tello_address)
+        except Exception as e:
+            print("Send error:", e)
 
 
 class TelloStatusThread(QThread):

@@ -2,12 +2,41 @@ import os
 import time
 from PyQt6.QtWidgets import (QWidget, QPushButton, QGridLayout, QVBoxLayout,
                              QHBoxLayout, QLineEdit, QSlider, QFrame, QLabel,
-                             QSizePolicy, QDialog)
+                             QSizePolicy, QDialog, QCheckBox)
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QKeyEvent, QPixmap, QImage
+from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor
 
 
-# --- PATTERN DESIGNER DIALOG ---
+class StickVisualizer(QWidget):
+    def __init__(self, label="Stick"):
+        super().__init__()
+        self.setFixedSize(100, 100)
+        self.label = label
+        self.pos_x = 0.0
+        self.pos_y = 0.0
+
+    def update_pos(self, x, y):
+        self.pos_x = x
+        self.pos_y = y
+        self.repaint()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(QPen(QColor("#334466"), 2))
+        p.setBrush(QColor("#0a1424"))
+        p.drawRoundedRect(5, 5, 90, 90, 5, 5)
+        p.setPen(QPen(QColor("#223344"), 1))
+        p.drawLine(50, 10, 50, 90)
+        p.drawLine(10, 50, 90, 50)
+        ix, iy = int(50 + (self.pos_x * 35)), int(50 + (self.pos_y * 35))
+        p.setPen(QPen(QColor("#00d4ff"), 3))
+        p.drawLine(ix - 5, iy, ix + 5, iy)
+        p.drawLine(ix, iy - 5, ix, iy + 5)
+        p.setPen(QColor("#ffffff"))
+        p.drawText(10, 95, self.label)
+
+
 class PatternDialog(QDialog):
     last_saved_state = None
 
@@ -22,388 +51,343 @@ class PatternDialog(QDialog):
         self.initUI()
 
     def initUI(self):
-        layout = QVBoxLayout()
+        layout = QVBoxLayout();
         layout.setSpacing(10)
         header_layout = QHBoxLayout()
         info_label = QLabel("Click pixels to cycle colors:\nGray -> Red -> Blue -> Purple")
         info_label.setStyleSheet("color: white; font-size: 11px; font-weight: bold;")
-
         self.btn_load_saved = QPushButton("Display Saved")
         self.btn_load_saved.setFixedSize(110, 35)
         self.btn_load_saved.setStyleSheet(
             "background-color: #009688; color: white; border-radius: 4px; font-size: 11px;")
         self.btn_load_saved.clicked.connect(self.load_saved_pattern)
         if PatternDialog.last_saved_state is None: self.btn_load_saved.setEnabled(False)
-
         header_layout.addWidget(info_label, 1)
         header_layout.addWidget(self.btn_load_saved)
         layout.addLayout(header_layout)
-
         grid_widget = QWidget()
-        self.grid_layout = QGridLayout(grid_widget)
-        self.grid_layout.setSpacing(2)
+        grid_lay = QGridLayout(grid_widget)
+        grid_lay.setSpacing(2)
         for i in range(64):
             btn = QPushButton()
             btn.setFixedSize(40, 40)
             btn.setStyleSheet(f"background-color: {self.colors[0][0]}; border: 1px solid #222;")
             btn.clicked.connect(lambda checked, idx=i: self.cycle_color(idx))
-            self.grid_layout.addWidget(btn, i // 8, i % 8)
+            grid_lay.addWidget(btn, i // 8, i % 8)
             self.buttons.append(btn)
         layout.addWidget(grid_widget)
-
         controls = QHBoxLayout()
         btn_clear = QPushButton("Clear All")
         btn_clear.clicked.connect(self.clear_grid)
         btn_clear.setStyleSheet("background-color: #f44336; color: white; min-height: 40px;")
-
         btn_save = QPushButton("Save Pattern")
         btn_save.clicked.connect(self.save_current_pattern)
         btn_save.setStyleSheet("background-color: #2196F3; color: white; min-height: 40px;")
-
         btn_ok = QPushButton("Send to Drone")
         btn_ok.clicked.connect(self.accept_pattern)
         btn_ok.setStyleSheet("background-color: #4CAF50; color: white; min-height: 40px;")
-
-        controls.addWidget(btn_clear);
-        controls.addWidget(btn_save);
+        controls.addWidget(btn_clear)
+        controls.addWidget(btn_save)
         controls.addWidget(btn_ok)
         layout.addLayout(controls)
         self.setLayout(layout)
         self.setStyleSheet("background-color: #1a2a44;")
 
     def cycle_color(self, idx):
-        self.grid_state[idx] = (self.grid_state[idx] + 1) % 4
-        self.update_button_style(idx)
+        self.grid_state[idx] = (self.grid_state[idx] + 1) % 4; self.update_button_style(idx)
 
     def update_button_style(self, idx):
-        color_hex = self.colors[self.grid_state[idx]][0]
-        self.buttons[idx].setStyleSheet(f"background-color: {color_hex}; border: 1px solid #222;")
+        self.buttons[idx].setStyleSheet(
+            f"background-color: {self.colors[self.grid_state[idx]][0]}; border: 1px solid #222;")
 
     def clear_grid(self):
-        for i in range(64):
-            self.grid_state[i] = 0
-            self.update_button_style(i)
+        for i in range(64): self.grid_state[i] = 0; self.update_button_style(i)
 
     def save_current_pattern(self):
-        PatternDialog.last_saved_state = list(self.grid_state)
-        self.btn_load_saved.setEnabled(True)
+        PatternDialog.last_saved_state = list(self.grid_state); self.btn_load_saved.setEnabled(True)
 
     def load_saved_pattern(self):
-        if PatternDialog.last_saved_state is not None:
-            self.grid_state = list(PatternDialog.last_saved_state)
-            for i in range(64): self.update_button_style(i)
+        if PatternDialog.last_saved_state: self.grid_state = list(PatternDialog.last_saved_state); [
+            self.update_button_style(i) for i in range(64)]
 
     def accept_pattern(self):
-        self.pattern_string = "".join([self.colors[state][1] for state in self.grid_state])
-        self.accept()
+        self.pattern_string = "".join([self.colors[s][1] for s in self.grid_state]); self.accept()
 
 
-# --- MAIN UI PANEL ---
 class TelloFullPanel(QWidget):
-    def __init__(self, worker, status_thread, video_thread):
+    def __init__(self, worker, status_thread, video_thread, gamepad):
         super().__init__()
         self.worker = worker
         self.status_thread = status_thread
         self.video_thread = video_thread
-        self.last_frame = None
+        self.gp_worker = gamepad
 
-        self.photo_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "photos")
-        if not os.path.exists(self.photo_dir):
-            os.makedirs(self.photo_dir)
 
         self.initUI()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def initUI(self):
         self.setWindowTitle('Tello Command Center')
-        self.setMinimumWidth(1200)
+        self.setMinimumWidth(1200);
         self.setMinimumHeight(800)
 
         self.setStyleSheet("""
-            QWidget { background-color: #1a2a44; }
-            QPushButton { background-color: #e0e0e0; border: 1px solid #999; font-weight: bold; min-height: 45px; border-radius: 4px; color: #333; font-size: 13px; padding: 4px; }
+            QWidget { background-color: #1a2a44; border: none; }
+            QPushButton { background-color: #e0e0e0; border: 1px solid #999; font-weight: bold; min-height: 40px; border-radius: 4px; color: #333; font-size: 12px; padding: 4px; }
             QPushButton:pressed { background-color: #bbbbbb; }
-            QLineEdit { background-color: white; border: 1px solid #999; border-radius: 4px; padding: 5px; color: black; font-weight: bold; min-height: 45px; font-size: 13px; }
-            QLabel#Terminal { background-color: #000; color: #0f0; font-family: 'Courier New'; font-weight: bold; padding-left: 10px; border: 1px solid #334466; border-top-left-radius: 4px; border-bottom-left-radius: 4px; border-right: none; }
-            QLabel#StatusBar { background-color: #0a1424; color: #fff; font-weight: bold; border: 1px solid #334466; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }
+            QLineEdit { background-color: white; border-radius: 4px; padding: 5px; color: black; font-weight: bold; min-height: 35px; }
+            QLabel#Terminal { background-color: #000; color: #0f0; font-family: 'Courier New'; font-weight: bold; padding-left: 15px; border-right: 2px solid #334466; }
+            QFrame#HeaderBar { background-color: #000; border: 2px solid #334466; border-radius: 6px; }
+            QLabel#StatLabel { color: #00d4ff; font-size: 12px; font-weight: bold; background: transparent; }
             QLabel#VideoDisplay { background-color: #000; border: 2px solid #334466; border-radius: 4px; color: #555; font-size: 18px; font-weight: bold; }
-            QLabel#VisualizerPlaceholder { background-color: #000; border: 1px solid #334466; color: #444; font-size: 14px; font-weight: bold; border-radius: 4px; }
-            QSlider::groove:horizontal { border: 1px solid #999; height: 8px; background: white; margin: 2px 0; border-radius: 4px; }
-            QSlider::handle:horizontal { background: #334466; border: 1px solid #555; width: 14px; height: 18px; margin: -6px 0; border-radius: 4px; }
+            QSlider::groove:horizontal { border: 1px solid #334466; height: 8px; background: #0a1424; border-radius: 4px; }
+            QSlider::handle:horizontal { background: #00d4ff; border: 1px solid #00d4ff; width: 18px; margin: -5px 0; border-radius: 9px; }
         """)
 
         main_vbox = QVBoxLayout()
         main_vbox.setContentsMargins(15, 15, 15, 15)
         main_vbox.setSpacing(15)
 
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(0)
-        self.terminal_display = QLabel(" > Awaiting Commands...")
+        # Header
+        self.header_frame = QFrame()
+        self.header_frame.setObjectName("HeaderBar")
+        self.header_frame.setFixedHeight(60)
+        header_layout = QHBoxLayout(self.header_frame)
+        header_layout.setContentsMargins(0, 0, 15, 0)
+        header_layout.setSpacing(15)
+        self.terminal_display = QLabel(" > READY FOR COMMANDS")
         self.terminal_display.setObjectName("Terminal")
         header_layout.addWidget(self.terminal_display, 1)
+        self.lbl_bat = QLabel("🔋 --%")
+        self.lbl_bat.setObjectName("StatLabel")
+        self.lbl_temp = QLabel("🌡️ --°C")
+        self.lbl_temp.setObjectName("StatLabel")
+        self.lbl_speed = QLabel("⚡ --")
+        self.lbl_speed.setObjectName("StatLabel")
+        self.lbl_vid_status = QLabel("📺 VIDEO: OFF")
+        self.lbl_vid_status.setStyleSheet(
+            "color: #f44336; font-size: 11px; font-weight: bold; background: transparent;")
+        header_layout.addWidget(self.lbl_bat)
+        header_layout.addWidget(self.lbl_temp)
+        header_layout.addWidget(self.lbl_speed)
+        header_layout.addWidget(self.lbl_vid_status)
+        main_vbox.addWidget(self.header_frame)
 
-        self.status_bar = QFrame()
-        self.status_bar.setObjectName("StatusBar")
-        status_inner_layout = QHBoxLayout(self.status_bar)
-        status_inner_layout.setContentsMargins(15, 0, 15, 0)
-        status_inner_layout.setSpacing(20)
-        self.lbl_bat, self.lbl_temp, self.lbl_speed, self.lbl_vid_status = QLabel("🔋 --%"), QLabel("🌡️ --°C"), QLabel(
-            "⚡ --"), QLabel("📺 VIDEO: OFF")
-
-        self.lbl_vid_status.setStyleSheet("color: #f44336; font-size: 13px; font-weight: bold;")
-        for lbl in [self.lbl_bat, self.lbl_temp, self.lbl_speed, self.lbl_vid_status]:
-            if lbl != self.lbl_vid_status:
-                lbl.setStyleSheet("color: #00d4ff; font-size: 13px;")
-            status_inner_layout.addWidget(lbl)
-
-        header_layout.addWidget(self.status_bar)
-        header_container = QWidget();
-        header_container.setFixedHeight(45);
-        header_container.setLayout(header_layout)
-        main_vbox.addWidget(header_container)
-
-        middle_layout = QHBoxLayout();
-        middle_layout.setSpacing(15)
+        # Middle Layout (Video + Main Controls)
+        mid_layout = QHBoxLayout()
+        mid_layout.setSpacing(15)
         self.video_display = QLabel("VIDEO OFF")
         self.video_display.setObjectName("VideoDisplay")
         self.video_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.video_display.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        middle_layout.addWidget(self.video_display, 6)
+        mid_layout.addWidget(self.video_display, 7)
 
-        # PANEL 1: MOVEMENT
-        panel1_container = QFrame()
-        panel1_layout = QGridLayout(panel1_container)
-        panel1_layout.setContentsMargins(0, 0, 0, 0);
-        panel1_layout.setSpacing(5)
-
-        btn_move_data = [
-            ('🚁 Takeoff (Space)', 0, 0, 'takeoff'), ('⬆️ Forward', 0, 1, 'forward 50'), ('🅿️ Land (L)', 0, 2, 'land'),
+        m_pnl = QFrame()
+        m_lay = QGridLayout(m_pnl)
+        m_lay.setContentsMargins(0, 0, 0, 0)
+        m_lay.setSpacing(6)
+        m_data = [
+            ('🚁 Takeoff', 0, 0, 'takeoff'), ('⬆️ Forward', 0, 1, 'forward 50'), ('🅿️ Land', 0, 2, 'land'),
             ('⬅️ Left', 1, 0, 'left 50'), ('🚦 CMD', 1, 1, 'command'), ('➡️ Right', 1, 2, 'right 50'),
-            ('👆 Up (W)', 2, 0, 'up 50'), ('⬇️ Back', 2, 1, 'back 50'), ('👇 Down (S)', 2, 2, 'down 50'),
-            ('🔄 CCW (A)', 3, 0, 'ccw 90'), ('🔄 CW (D)', 3, 2, 'cw 90')
+            ('👆 Up', 2, 0, 'up 50'), ('⬇️ Back', 2, 1, 'back 50'), ('👇 Down', 2, 2, 'down 50'),
+            ('🔄 CCW', 3, 0, 'ccw 90'), ('🔄 CW', 3, 2, 'cw 90')
         ]
-        for label, row, col, cmd in btn_move_data:
-            btn = self.create_expanding_btn(label)
-            btn.clicked.connect(lambda checked, c=cmd: self.send_cmd(c))
-            panel1_layout.addWidget(btn, row, col)
+        for l, r, c, cmd in m_data:
+            btn = self.create_btn(l)
+            btn.clicked.connect(lambda chk, x=cmd: self.send_cmd(x))
+            m_lay.addWidget(btn, r, c)
 
         stack_layout = QVBoxLayout()
-        btn_emergency = self.create_expanding_btn('🚨 EMERGENCY')
-        btn_emergency.setStyleSheet("background-color: #d32f2f; color: white; min-height: 20px; font-size: 11px;")
-        btn_emergency.clicked.connect(lambda: self.send_cmd('emergency'))
-        btn_ml = self.create_expanding_btn('Start ML')
-        btn_ml.setStyleSheet("background-color: #455a64; color: white; min-height: 20px; font-size: 11px;")
-        stack_layout.addWidget(btn_emergency);
+        stack_layout.setSpacing(4)
+        em = self.create_btn('🚨 EMERGENCY')
+        em.setStyleSheet("background-color: #d32f2f; color: white; min-height: 35px; border: none;")
+        em.clicked.connect(lambda: self.send_cmd('emergency'))
+        btn_ml = self.create_btn('Start ML')
+        btn_ml.setStyleSheet("background-color: #455a64; color: white; min-height: 35px; border: none;")
+        stack_layout.addWidget(em)
         stack_layout.addWidget(btn_ml)
-        panel1_layout.addLayout(stack_layout, 3, 1)
+        m_lay.addLayout(stack_layout, 3, 1)
+        mid_layout.addWidget(m_pnl, 3)
+        main_vbox.addLayout(mid_layout, 6)
 
-        middle_layout.addWidget(panel1_container, 4)
-        main_vbox.addLayout(middle_layout, 6)
-
-        bottom_layout = QHBoxLayout();
+        # Bottom Panels
+        bottom_layout = QHBoxLayout()
         bottom_layout.setSpacing(15)
 
-        # PANEL 2: LED CONTROLS
-        panel2_container = QFrame()
-        panel2_layout = QGridLayout(panel2_container)
-        panel2_layout.setContentsMargins(0, 0, 0, 0);
-        panel2_layout.setSpacing(5)
-
-        led_btns = [
-            ('🔴 Red', 0, 0, 'led 255 0 0'),
-            ('🟢 Green', 0, 1, 'led 0 255 0'),
-            ('🔵 Blue', 0, 2, 'led 0 0 255'),
-            ('🔵 Pulse Blue', 1, 0, 'led 0 0 255 2'),
-            ('⚫ Off', 1, 1, 'led 0 0 0'),
-            ('🚔 POLICE!', 1, 2, 'led 255 0 0 5')
-        ]
-        for l, r, c, cmd in led_btns:
-            btn = self.create_expanding_btn(l)
-            btn.clicked.connect(lambda checked, cmd=cmd: self.send_cmd(cmd))
-            panel2_layout.addWidget(btn, r, c)
-
-        text_input_lay = QHBoxLayout()
-        text_input_lay.setSpacing(5)
+        # Panel 1: LED
+        l_pnl = QFrame()
+        l_lay = QGridLayout(l_pnl)
+        l_lay.setContentsMargins(0, 0, 0, 0)
+        l_lay.setSpacing(5)
+        leds = [('🔴 Red', 0, 0, 'led 255 0 0'), ('🟢 Green', 0, 1, 'led 0 255 0'), ('🔵 Blue', 0, 2, 'led 0 0 255'),
+                ('🔵 Pulse', 1, 0, 'led 0 0 255 2'), ('⚫ Off', 1, 1, 'led 0 0 0'), ('🚔 POLICE', 1, 2, 'led 255 0 0 5')]
+        for l, r, c, cmd in leds:
+            btn = self.create_btn(l)
+            btn.clicked.connect(lambda chk, x=cmd: self.send_cmd(x));
+            l_lay.addWidget(btn, r, c)
         self.input_text = QLineEdit("Hello")
-        self.input_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        btn_text_send = self.create_expanding_btn("Send Text")
-        btn_text_send.clicked.connect(lambda: self.send_cmd(f"EXT mled l b 1 {self.input_text.text()}"))
-        text_input_lay.addWidget(self.input_text, 6);
-        text_input_lay.addWidget(btn_text_send, 4)
+        btn_text = self.create_btn("Send Text")
+        btn_text.clicked.connect(lambda: self.send_cmd(f"EXT mled l b 1 {self.input_text.text()}"))
+        l_lay.addWidget(self.input_text, 2, 0, 1, 2)
+        l_lay.addWidget(btn_text, 2, 2)
+        btn_patt = self.create_btn("Pattern Designer")
+        btn_patt.setStyleSheet("background-color: #673AB7; color: white; border: none;")
+        btn_patt.clicked.connect(self.open_pattern_designer)
+        l_lay.addWidget(btn_patt, 3, 0, 1, 3)
+        bottom_layout.addWidget(l_pnl, 1)
 
-        btn_pattern = self.create_expanding_btn("Pattern Designer")
-        btn_pattern.setStyleSheet("background-color: #673AB7; color: white;")
-        btn_pattern.clicked.connect(self.open_pattern_designer)
+        # Panel 2: Speed + Gamepad
+        mid_btm_pnl = QFrame()
+        mid_btm_lay = QVBoxLayout(mid_btm_pnl)
+        mid_btm_lay.setContentsMargins(0, 0, 0, 0)
+        mid_btm_lay.setSpacing(10)
+        spd_box = QWidget()
+        spd_lay = QVBoxLayout(spd_box)
+        spd_lay.setContentsMargins(5, 5, 5, 5)
+        spd_hdr = QHBoxLayout()
+        spd_lbl = QLabel("🚀 SPEED SETTING")
+        spd_lbl.setStyleSheet("color: #00d4ff; font-weight: bold; font-size: 10px;")
+        self.spd_val_lbl = QLabel("50 cm/s")
+        self.spd_val_lbl.setStyleSheet("color: white; font-weight: bold;")
+        spd_hdr.addWidget(spd_lbl)
+        spd_hdr.addStretch()
+        spd_hdr.addWidget(self.spd_val_lbl)
+        self.spd_slider = QSlider(Qt.Orientation.Horizontal)
+        self.spd_slider.setRange(10, 100)
+        self.spd_slider.setValue(50)
+        self.spd_slider.valueChanged.connect(self.update_speed_label)
+        self.spd_slider.sliderReleased.connect(lambda: self.send_cmd(f"speed {self.spd_slider.value()}"))
+        spd_lay.addLayout(spd_hdr)
+        spd_lay.addWidget(self.spd_slider)
+        mid_btm_lay.addWidget(spd_box)
+        vis_box = QWidget()
+        vis_lay = QVBoxLayout(vis_box)
+        vis_lay.setContentsMargins(5, 0, 5, 5)
+        gp_hdr = QHBoxLayout()
+        gp_lbl = QLabel("🎮 GAMEPAD");
+        gp_lbl.setStyleSheet("color: #00d4ff; font-weight: bold; font-size: 10px;")
+        self.gp_chk = QCheckBox("Enable");
+        self.gp_chk.stateChanged.connect(self.toggle_gamepad);
+        self.gp_chk.setStyleSheet("color: white;")
+        gp_hdr.addWidget(gp_lbl);
+        gp_hdr.addStretch();
+        gp_hdr.addWidget(self.gp_chk);
+        vis_lay.addLayout(gp_hdr)
+        sticks_lay = QHBoxLayout();
+        self.ls = StickVisualizer("L");
+        self.rs = StickVisualizer("R")
+        sticks_lay.addWidget(self.ls);
+        sticks_lay.addWidget(self.rs);
+        vis_lay.addLayout(sticks_lay);
+        mid_btm_lay.addWidget(vis_box)
+        bottom_layout.addWidget(mid_btm_pnl, 1)
 
-        panel2_layout.addLayout(text_input_lay, 2, 0, 1, 2)
-        panel2_layout.addWidget(btn_pattern, 2, 2)
+        # Panel 3: Extra Controls (Motor / Flips / Video)
+        u_pnl = QFrame();
+        u_lay = QGridLayout(u_pnl);
+        u_lay.setContentsMargins(0, 0, 0, 0);
+        u_lay.setSpacing(5)
 
-        # Spacer for 4th row to match Panel 1
-        panel2_layout.addWidget(QLabel(""), 3, 0, 1, 3)
+        motor_stack_widget = QWidget()
+        motor_v_lay = QVBoxLayout(motor_stack_widget)
+        motor_v_lay.setContentsMargins(0, 0, 0, 0)
+        motor_v_lay.setSpacing(5)
 
-        bottom_layout.addWidget(panel2_container, 1)
+        btn_mon = self.create_btn("🥶 Motor ON");
+        btn_mon.clicked.connect(lambda: self.send_cmd('motoron'))
+        btn_moff = self.create_btn("📴 Motor OFF");
+        btn_moff.clicked.connect(lambda: self.send_cmd('motoroff'))
+        motor_v_lay.addWidget(btn_mon)
+        motor_v_lay.addWidget(btn_moff)
+        u_lay.addWidget(motor_stack_widget, 0, 0)  # RESTORED MOTOR OFF
 
-        self.visualizer_placeholder = QLabel("GAMEPAD VISUALIZER")
-        self.visualizer_placeholder.setObjectName("VisualizerPlaceholder")
-        self.visualizer_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        bottom_layout.addWidget(self.visualizer_placeholder, 1)
+        btn_f_flip = self.create_btn("⬆️ Flip F");
+        btn_f_flip.clicked.connect(lambda: self.send_cmd('flip f'));
+        u_lay.addWidget(btn_f_flip, 0, 1)
+        btn_photo = self.create_btn("📸 Photo");
+        btn_photo.clicked.connect(lambda: self.send_cmd('takephoto'));
+        u_lay.addWidget(btn_photo, 0, 2)
 
-        # PANEL 3: UTILITIES
-        panel3_container = QFrame()
-        panel3_layout = QGridLayout(panel3_container)
-        panel3_layout.setContentsMargins(0, 0, 0, 0);
-        panel3_layout.setSpacing(5)
+        flips_mid = [("⬅️ Flip L", 1, 0, 'flip l'), ("🏈 ThrowFly", 1, 1, 'throwfly'), ("➡️ Flip R", 1, 2, 'flip r')]
+        for lbl, r, c, cmd in flips_mid:
+            btn = self.create_btn(lbl);
+            btn.clicked.connect(lambda chk, x=cmd: self.send_cmd(x));
+            u_lay.addWidget(btn, r, c)
 
-        btn_on = self.create_expanding_btn("🥶 Motor ON")
-        btn_off = self.create_expanding_btn("📴 Motor OFF")
-        btn_on.clicked.connect(lambda: self.send_cmd('motoron'))
-        btn_off.clicked.connect(lambda: self.send_cmd('motoroff'))
-
-        panel3_layout.addWidget(btn_on, 0, 0)
-        fwd_flip = self.create_expanding_btn("⬆️ Flip fwd")
-        fwd_flip.clicked.connect(lambda: self.send_cmd('flip f'))
-        panel3_layout.addWidget(fwd_flip, 0, 1)
-
-        btn_photo = self.create_expanding_btn("📸 Take photo")
-        btn_photo.clicked.connect(self.take_photo)
-        panel3_layout.addWidget(btn_photo, 0, 2)
-
-        flips = [("⬅️ Flip L", 1, 0, 'flip l'), ("🏈 ThrowFly", 1, 1, 'throwfly'), ("➡️ Flip R", 1, 2, 'flip r')]
-        for lbl, r, c, cmd in flips:
-            btn = self.create_expanding_btn(lbl)
-            btn.clicked.connect(lambda chk, cmd=cmd: self.send_cmd(cmd))
-            panel3_layout.addWidget(btn, r, c)
-
-        btn_vid_on = self.create_expanding_btn("📺 Video ON")
+        btn_vid_on = self.create_btn("📺 Video ON");
         btn_vid_on.setStyleSheet("background-color: #4CAF50; color: white;")
-        btn_vid_on.clicked.connect(self.video_on)
-        panel3_layout.addWidget(btn_vid_on, 2, 0)
-
-        back_flip = self.create_expanding_btn("⬇️ Flip back")
-        back_flip.clicked.connect(lambda: self.send_cmd('flip b'))
-        panel3_layout.addWidget(back_flip, 2, 1)
-
-        btn_vid_off = self.create_expanding_btn("📺 Video OFF")
+        btn_vid_on.clicked.connect(self.video_on);
+        u_lay.addWidget(btn_vid_on, 2, 0)
+        btn_b_flip = self.create_btn("⬇️ Flip B");
+        btn_b_flip.clicked.connect(lambda: self.send_cmd('flip b'))
+        u_lay.addWidget(btn_b_flip, 2, 1)
+        btn_vid_off = self.create_btn("📺 Video OFF");
         btn_vid_off.setStyleSheet("background-color: #f44336; color: white;")
-        btn_vid_off.clicked.connect(self.video_off)
-        panel3_layout.addWidget(btn_vid_off, 2, 2)
+        btn_vid_off.clicked.connect(self.video_off);
+        u_lay.addWidget(btn_vid_off, 2, 2)
 
-        # Row 3: Speed Controls and Motor Off
-        speed_widget = QWidget()
-        speed_v_lay = QVBoxLayout(speed_widget)
-        speed_v_lay.setContentsMargins(2, 2, 2, 2);
-        speed_v_lay.setSpacing(0)
-        speed_label = QLabel("Speed")
-        speed_label.setStyleSheet("color: white; font-size: 10px;")
-        speed_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        speed_slider = QSlider(Qt.Orientation.Horizontal)
-        speed_slider.setRange(10, 100)
-        speed_slider.valueChanged.connect(lambda val: self.send_cmd(f'speed {val}'))
-        speed_v_lay.addWidget(speed_label);
-        speed_v_lay.addWidget(speed_slider)
-
-        panel3_layout.addWidget(speed_widget, 3, 0, 1, 2)
-        panel3_layout.addWidget(btn_off, 3, 2)
-
-        bottom_layout.addWidget(panel3_container, 1)
-        main_vbox.addLayout(bottom_layout, 4)
+        bottom_layout.addWidget(u_pnl, 1)
+        main_vbox.addLayout(bottom_layout, 4);
         self.setLayout(main_vbox)
 
-    def create_expanding_btn(self, label):
-        btn = QPushButton(label)
-        btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        return btn
+    def create_btn(self, label):
+        b = QPushButton(label);
+        b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding);
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus);
+        return b
+
+
 
     def handle_response(self, text):
-        self.terminal_display.setText(f" > {text}")
-
-    def handle_status_update(self, stats):
-        if 'bat' in stats: self.update_stat_label('bat', stats['bat'])
-        if 'templ' in stats and 'temph' in stats:
-            avg_temp = (int(stats['templ']) + int(stats['temph'])) // 2
-            self.update_stat_label('temp', str(avg_temp))
-
-    def update_stat_label(self, stat_type, value):
-        if stat_type == 'bat':
-            self.lbl_bat.setText(f"🔋 {value}%")
-        elif stat_type == 'temp':
-            self.lbl_temp.setText(f"🌡️ {value}°C")
-        elif stat_type == 'speed':
-            self.lbl_speed.setText(f"⚡ {value}")
-        elif stat_type == 'video':
-            if value == "ON":
-                self.lbl_vid_status.setText("📺 VIDEO: ON")
-                self.lbl_vid_status.setStyleSheet("color: #4CAF50; font-size: 13px; font-weight: bold;")
-            else:
-                self.lbl_vid_status.setText("📺 VIDEO: OFF")
-                self.lbl_vid_status.setStyleSheet("color: #f44336; font-size: 13px; font-weight: bold;")
-
-    def update_video_frame(self, q_img):
-        self.last_frame = q_img
-        pixmap = QPixmap.fromImage(q_img)
-        scaled_pixmap = pixmap.scaled(self.video_display.size(),
-                                      Qt.AspectRatioMode.KeepAspectRatio,
-                                      Qt.TransformationMode.FastTransformation)
-        self.video_display.setPixmap(scaled_pixmap)
+        self.terminal_display.setText(f" > {text.upper()}")
 
     def send_cmd(self, cmd):
-        self.worker.send(cmd)
-        if cmd.startswith("speed"):
-            try:
-                self.update_stat_label('speed', cmd.split(" ")[1])
-            except:
-                pass
+        if self.worker: self.worker.send(cmd)
+        self.terminal_display.setText(f" > {cmd.upper()}")
 
-    def take_photo(self):
-        if self.last_frame and not self.last_frame.isNull():
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            filename = f"tello_photo_{timestamp}.png"
-            filepath = os.path.join(self.photo_dir, filename)
-            if self.last_frame.save(filepath, "PNG"):
-                self.terminal_display.setText(f" > Photo saved: {filename}")
-            else:
-                self.terminal_display.setText(" > Error: Failed to save photo.")
-        else:
-            self.terminal_display.setText(" > Error: No video frame to capture.")
+    def update_speed_label(self, val):
+        self.spd_val_lbl.setText(f"{val} cm/s")
+
+    def handle_status_update(self, stats):
+        if 'bat' in stats: self.lbl_bat.setText(f"🔋 {stats['bat']}%")
+        if 'templ' in stats: self.lbl_temp.setText(f"🌡️ {stats['templ']}°C")
+        if 'speed' in stats: self.lbl_speed.setText(f"⚡ {stats['speed']}")
+
+    def update_video_frame(self, q_img):
+        pixmap = QPixmap.fromImage(q_img)
+        scaled = pixmap.scaled(self.video_display.size(), Qt.AspectRatioMode.KeepAspectRatio)
+        self.video_display.setPixmap(scaled)
 
     def video_on(self):
-        if not self.video_thread.isRunning():
-            self.terminal_display.setText(" > Initializing Video Stream...")
-            self.send_cmd('streamon')
-            QTimer.singleShot(1500, self.video_thread.start)
-            self.update_stat_label('video', "ON")
+        self.send_cmd('streamon')
+        QTimer.singleShot(1000, lambda: self.video_thread.start())
+        self.lbl_vid_status.setText("📺 VIDEO: ON");
+        self.lbl_vid_status.setStyleSheet("color: #4CAF50; background: transparent;")
 
     def video_off(self):
-        self.terminal_display.setText(" > Stopping Stream...")
-        self.send_cmd('streamoff')
+        self.send_cmd('streamoff');
         self.video_thread.stop()
-        self.video_display.clear()
+        self.video_display.clear();
         self.video_display.setText("VIDEO OFF")
-        self.update_stat_label('video', "OFF")
+        self.lbl_vid_status.setText("📺 VIDEO: OFF");
+        self.lbl_vid_status.setStyleSheet("color: #f44336; background: transparent;")
 
     def open_pattern_designer(self):
-        dialog = PatternDialog(self)
-        if dialog.exec():
-            self.send_cmd(f"EXT mled g {dialog.pattern_string}")
+        d = PatternDialog(self)
+        if d.exec(): self.send_cmd(f"EXT mled g {d.pattern_string}")
 
-    def keyPressEvent(self, event: QKeyEvent):
-        key = event.key()
-        if isinstance(self.focusWidget(), QLineEdit):
-            super().keyPressEvent(event)
-            return
-        commands = {
-            Qt.Key.Key_Space: 'takeoff', Qt.Key.Key_L: 'land', Qt.Key.Key_0: 'emergency',
-            Qt.Key.Key_Up: 'forward 50', Qt.Key.Key_Down: 'back 50', Qt.Key.Key_Left: 'left 50',
-            Qt.Key.Key_Right: 'right 50', Qt.Key.Key_W: 'up 50', Qt.Key.Key_S: 'down 50',
-            Qt.Key.Key_A: 'ccw 90', Qt.Key.Key_D: 'cw 90'
-        }
-        if key in commands:
-            self.send_cmd(commands[key])
+    def toggle_gamepad(self, state):
+        if state == 2:
+            self.gp_worker.start()
         else:
-            super().keyPressEvent(event)
+            self.gp_worker.stop()
+            self.ls.update_pos(0, 0)
+            self.rs.update_pos(0, 0)
 
-    def closeEvent(self, event):
-        self.status_thread.stop()
-        self.video_thread.stop()
-        super().closeEvent(event)
+    def update_visualizer_sticks(self, axes):
+        if len(axes) == 4: self.ls.update_pos(axes[0], axes[1]); self.rs.update_pos(axes[2], axes[3])
+
+    def keyPressEvent(self, e):
+        keys = {Qt.Key.Key_Space: 'takeoff', Qt.Key.Key_L: 'land', Qt.Key.Key_Up: 'forward 50',
+                Qt.Key.Key_Down: 'back 50'}
+        if e.key() in keys: self.send_cmd(keys[e.key()])
