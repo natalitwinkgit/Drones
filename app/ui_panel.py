@@ -203,6 +203,7 @@ class TelloFullPanel(QWidget):
         em.setStyleSheet("background-color: #d32f2f; color: white; min-height: 35px; border: none;")
         em.clicked.connect(lambda: self.send_cmd('emergency'))
         btn_ml = self.create_btn('Start ML')
+        btn_ml.clicked.connect(self.toggle_ml) # ML function
         btn_ml.setStyleSheet("background-color: #455a64; color: white; min-height: 35px; border: none;")
         stack_layout.addWidget(em)
         stack_layout.addWidget(btn_ml)
@@ -391,3 +392,9 @@ class TelloFullPanel(QWidget):
         keys = {Qt.Key.Key_Space: 'takeoff', Qt.Key.Key_L: 'land', Qt.Key.Key_Up: 'forward 50',
                 Qt.Key.Key_Down: 'back 50'}
         if e.key() in keys: self.send_cmd(keys[e.key()])
+
+    def toggle_ml(self):
+        if not hasattr(self.video_thread, "ml_enabled"):
+            self.video_thread.ml_enabled = False
+
+        self.video_thread.ml_enabled = not self.video_thread.ml_enabled

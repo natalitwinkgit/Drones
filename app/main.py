@@ -39,7 +39,12 @@ def main():
     gamepad.command_signal.connect(worker.send)
     gamepad.button_signal.connect(worker.send)
     gamepad.axis_signal.connect(window.update_visualizer_sticks)
+    """
+    base_dir = os.path.dirname(__file__)
 
+    model_path = os.path.join(base_dir, "ml", "keras_Model.h5")
+    labels_path = os.path.join(base_dir, "ml", "labels.txt")
+    """
     # 5. Start Background Threads
     status_thread.start()
     # gamepad_thread.start()

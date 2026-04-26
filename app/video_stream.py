@@ -4,6 +4,9 @@ import time
 import threading
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QImage
+# from ml_interface import MLModel
+
+
 
 # --- ULTRA LOW LATENCY FFMPEG TUNING ---
 # We set these environment variables before initializing VideoCapture
@@ -36,8 +39,25 @@ class TelloVideoThread(QThread):
 
     def run(self):
         """Main decoding loop."""
-        self._stop_event.clear()
+        """
+        if self.ml_enabled:
+            class_name, conf = self.ml_model.predict(frame)
 
+            label = f"{class_name} ({conf * 100:.1f}%)"
+
+            cv2.putText(frame,
+                        label,
+                        (frame.shape[1] - 250, frame.shape[0] - 20),  # bottom right
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 0),
+                        2)
+            
+        self._stop_event.clear()
+        
+        self.ml_enabled = False
+        self.ml_model = MLModel(model_path, labels_path)
+        """
         # Initialize capture inside the thread to ensure the FFmpeg
         # context is local to this thread's execution.
         self.cap = cv2.VideoCapture(self.video_url, cv2.CAP_FFMPEG)
