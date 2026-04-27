@@ -1,5 +1,3 @@
-import os
-import time
 from PyQt6.QtWidgets import (QWidget, QPushButton, QGridLayout, QVBoxLayout,
                              QHBoxLayout, QLineEdit, QSlider, QFrame, QLabel,
                              QSizePolicy, QDialog, QCheckBox)
@@ -51,7 +49,7 @@ class PatternDialog(QDialog):
         self.initUI()
 
     def initUI(self):
-        layout = QVBoxLayout();
+        layout = QVBoxLayout()
         layout.setSpacing(10)
         header_layout = QHBoxLayout()
         info_label = QLabel("Click pixels to cycle colors:\nGray -> Red -> Blue -> Purple")
@@ -61,7 +59,8 @@ class PatternDialog(QDialog):
         self.btn_load_saved.setStyleSheet(
             "background-color: #009688; color: white; border-radius: 4px; font-size: 11px;")
         self.btn_load_saved.clicked.connect(self.load_saved_pattern)
-        if PatternDialog.last_saved_state is None: self.btn_load_saved.setEnabled(False)
+        if PatternDialog.last_saved_state is None:
+            self.btn_load_saved.setEnabled(False)
         header_layout.addWidget(info_label, 1)
         header_layout.addWidget(self.btn_load_saved)
         layout.addLayout(header_layout)
@@ -94,41 +93,47 @@ class PatternDialog(QDialog):
         self.setStyleSheet("background-color: #1a2a44;")
 
     def cycle_color(self, idx):
-        self.grid_state[idx] = (self.grid_state[idx] + 1) % 4; self.update_button_style(idx)
+        self.grid_state[idx] = (self.grid_state[idx] + 1) % 4
+        self.update_button_style(idx)
 
     def update_button_style(self, idx):
         self.buttons[idx].setStyleSheet(
             f"background-color: {self.colors[self.grid_state[idx]][0]}; border: 1px solid #222;")
 
     def clear_grid(self):
-        for i in range(64): self.grid_state[i] = 0; self.update_button_style(i)
+        for i in range(64):
+            self.grid_state[i] = 0
+            self.update_button_style(i)
 
     def save_current_pattern(self):
-        PatternDialog.last_saved_state = list(self.grid_state); self.btn_load_saved.setEnabled(True)
+        PatternDialog.last_saved_state = list(self.grid_state)
+        self.btn_load_saved.setEnabled(True)
 
     def load_saved_pattern(self):
-        if PatternDialog.last_saved_state: self.grid_state = list(PatternDialog.last_saved_state); [
-            self.update_button_style(i) for i in range(64)]
+        if PatternDialog.last_saved_state:
+            self.grid_state = list(PatternDialog.last_saved_state)
+            [self.update_button_style(i) for i in range(64)]
 
     def accept_pattern(self):
-        self.pattern_string = "".join([self.colors[s][1] for s in self.grid_state]); self.accept()
+        self.pattern_string = "".join([self.colors[s][1] for s in self.grid_state])
+        self.accept()
 
 
 class TelloFullPanel(QWidget):
-    def __init__(self, worker, status_thread, video_thread, gamepad):
+    def __init__(self, worker, status_thread, video_thread, gamepad, ml_worker=None):
         super().__init__()
         self.worker = worker
         self.status_thread = status_thread
         self.video_thread = video_thread
         self.gp_worker = gamepad
-
+        self.ml_worker = ml_worker
 
         self.initUI()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def initUI(self):
         self.setWindowTitle('Tello Command Center')
-        self.setMinimumWidth(1200);
+        self.setMinimumWidth(1200)
         self.setMinimumHeight(800)
 
         self.setStyleSheet("""
@@ -202,11 +207,13 @@ class TelloFullPanel(QWidget):
         em = self.create_btn('🚨 EMERGENCY')
         em.setStyleSheet("background-color: #d32f2f; color: white; min-height: 35px; border: none;")
         em.clicked.connect(lambda: self.send_cmd('emergency'))
-        btn_ml = self.create_btn('Start ML')
-        btn_ml.clicked.connect(self.toggle_ml) # ML function
-        btn_ml.setStyleSheet("background-color: #455a64; color: white; min-height: 35px; border: none;")
+
+        self.btn_ml = self.create_btn('🤖 ML: OFF')
+        self.btn_ml.clicked.connect(self.toggle_ml)
+        self.btn_ml.setStyleSheet("background-color: #455a64; color: white; min-height: 35px; border: none;")
+
         stack_layout.addWidget(em)
-        stack_layout.addWidget(btn_ml)
+        stack_layout.addWidget(self.btn_ml)
         m_lay.addLayout(stack_layout, 3, 1)
         mid_layout.addWidget(m_pnl, 3)
         main_vbox.addLayout(mid_layout, 6)
@@ -224,7 +231,7 @@ class TelloFullPanel(QWidget):
                 ('🔵 Pulse', 1, 0, 'led 0 0 255 2'), ('⚫ Off', 1, 1, 'led 0 0 0'), ('🚔 POLICE', 1, 2, 'led 255 0 0 5')]
         for l, r, c, cmd in leds:
             btn = self.create_btn(l)
-            btn.clicked.connect(lambda chk, x=cmd: self.send_cmd(x));
+            btn.clicked.connect(lambda chk, x=cmd: self.send_cmd(x))
             l_lay.addWidget(btn, r, c)
         self.input_text = QLineEdit("Hello")
         btn_text = self.create_btn("Send Text")
@@ -265,85 +272,87 @@ class TelloFullPanel(QWidget):
         vis_lay = QVBoxLayout(vis_box)
         vis_lay.setContentsMargins(5, 0, 5, 5)
         gp_hdr = QHBoxLayout()
-        gp_lbl = QLabel("🎮 GAMEPAD");
+        gp_lbl = QLabel("🎮 GAMEPAD")
         gp_lbl.setStyleSheet("color: #00d4ff; font-weight: bold; font-size: 10px;")
-        self.gp_chk = QCheckBox("Enable");
-        self.gp_chk.stateChanged.connect(self.toggle_gamepad);
+        self.gp_chk = QCheckBox("Enable")
+        self.gp_chk.stateChanged.connect(self.toggle_gamepad)
         self.gp_chk.setStyleSheet("color: white;")
-        gp_hdr.addWidget(gp_lbl);
-        gp_hdr.addStretch();
-        gp_hdr.addWidget(self.gp_chk);
+        gp_hdr.addWidget(gp_lbl)
+        gp_hdr.addStretch()
+        gp_hdr.addWidget(self.gp_chk)
         vis_lay.addLayout(gp_hdr)
-        sticks_lay = QHBoxLayout();
-        self.ls = StickVisualizer("L");
+        sticks_lay = QHBoxLayout()
+        self.ls = StickVisualizer("L")
         self.rs = StickVisualizer("R")
-        sticks_lay.addWidget(self.ls);
-        sticks_lay.addWidget(self.rs);
-        vis_lay.addLayout(sticks_lay);
+        sticks_lay.addWidget(self.ls)
+        sticks_lay.addWidget(self.rs)
+        vis_lay.addLayout(sticks_lay)
         mid_btm_lay.addWidget(vis_box)
         bottom_layout.addWidget(mid_btm_pnl, 1)
 
-        # Panel 3: Extra Controls (Motor / Flips / Video)
-        u_pnl = QFrame();
-        u_lay = QGridLayout(u_pnl);
-        u_lay.setContentsMargins(0, 0, 0, 0);
+        # Panel 3: Extra Controls
+        u_pnl = QFrame()
+        u_lay = QGridLayout(u_pnl)
+        u_lay.setContentsMargins(0, 0, 0, 0)
         u_lay.setSpacing(5)
 
         motor_stack_widget = QWidget()
         motor_v_lay = QVBoxLayout(motor_stack_widget)
         motor_v_lay.setContentsMargins(0, 0, 0, 0)
         motor_v_lay.setSpacing(5)
-
-        btn_mon = self.create_btn("🥶 Motor ON");
+        btn_mon = self.create_btn("🥶 Motor ON")
         btn_mon.clicked.connect(lambda: self.send_cmd('motoron'))
-        btn_moff = self.create_btn("📴 Motor OFF");
+        btn_moff = self.create_btn("📴 Motor OFF")
         btn_moff.clicked.connect(lambda: self.send_cmd('motoroff'))
         motor_v_lay.addWidget(btn_mon)
         motor_v_lay.addWidget(btn_moff)
-        u_lay.addWidget(motor_stack_widget, 0, 0)  # RESTORED MOTOR OFF
+        u_lay.addWidget(motor_stack_widget, 0, 0)
 
-        btn_f_flip = self.create_btn("⬆️ Flip F");
-        btn_f_flip.clicked.connect(lambda: self.send_cmd('flip f'));
+        btn_f_flip = self.create_btn("⬆️ Flip F")
+        btn_f_flip.clicked.connect(lambda: self.send_cmd('flip f'))
         u_lay.addWidget(btn_f_flip, 0, 1)
-        btn_photo = self.create_btn("📸 Photo");
-        btn_photo.clicked.connect(lambda: self.send_cmd('takephoto'));
+        btn_photo = self.create_btn("📸 Photo")
+        btn_photo.clicked.connect(lambda: self.send_cmd('takephoto'))
         u_lay.addWidget(btn_photo, 0, 2)
 
         flips_mid = [("⬅️ Flip L", 1, 0, 'flip l'), ("🏈 ThrowFly", 1, 1, 'throwfly'), ("➡️ Flip R", 1, 2, 'flip r')]
         for lbl, r, c, cmd in flips_mid:
-            btn = self.create_btn(lbl);
-            btn.clicked.connect(lambda chk, x=cmd: self.send_cmd(x));
+            btn = self.create_btn(lbl)
+            btn.clicked.connect(lambda chk, x=cmd: self.send_cmd(x))
             u_lay.addWidget(btn, r, c)
 
-        btn_vid_on = self.create_btn("📺 Video ON");
+        btn_vid_on = self.create_btn("📺 Video ON")
         btn_vid_on.setStyleSheet("background-color: #4CAF50; color: white;")
-        btn_vid_on.clicked.connect(self.video_on);
+        btn_vid_on.clicked.connect(self.video_on)
         u_lay.addWidget(btn_vid_on, 2, 0)
-        btn_b_flip = self.create_btn("⬇️ Flip B");
+        btn_b_flip = self.create_btn("⬇️ Flip B")
         btn_b_flip.clicked.connect(lambda: self.send_cmd('flip b'))
         u_lay.addWidget(btn_b_flip, 2, 1)
-        btn_vid_off = self.create_btn("📺 Video OFF");
+        btn_vid_off = self.create_btn("📺 Video OFF")
         btn_vid_off.setStyleSheet("background-color: #f44336; color: white;")
-        btn_vid_off.clicked.connect(self.video_off);
+        btn_vid_off.clicked.connect(self.video_off)
         u_lay.addWidget(btn_vid_off, 2, 2)
 
         bottom_layout.addWidget(u_pnl, 1)
-        main_vbox.addLayout(bottom_layout, 4);
+        main_vbox.addLayout(bottom_layout, 4)
         self.setLayout(main_vbox)
 
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
     def create_btn(self, label):
-        b = QPushButton(label);
-        b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding);
-        b.setFocusPolicy(Qt.FocusPolicy.NoFocus);
+        b = QPushButton(label)
+        b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         return b
-
-
 
     def handle_response(self, text):
         self.terminal_display.setText(f" > {text.upper()}")
 
     def send_cmd(self, cmd):
-        if self.worker: self.worker.send(cmd)
+        if self.worker:
+            self.worker.send(cmd)
         self.terminal_display.setText(f" > {cmd.upper()}")
 
     def update_speed_label(self, val):
@@ -362,20 +371,21 @@ class TelloFullPanel(QWidget):
     def video_on(self):
         self.send_cmd('streamon')
         QTimer.singleShot(1000, lambda: self.video_thread.start())
-        self.lbl_vid_status.setText("📺 VIDEO: ON");
+        self.lbl_vid_status.setText("📺 VIDEO: ON")
         self.lbl_vid_status.setStyleSheet("color: #4CAF50; background: transparent;")
 
     def video_off(self):
-        self.send_cmd('streamoff');
+        self.send_cmd('streamoff')
         self.video_thread.stop()
-        self.video_display.clear();
+        self.video_display.clear()
         self.video_display.setText("VIDEO OFF")
-        self.lbl_vid_status.setText("📺 VIDEO: OFF");
+        self.lbl_vid_status.setText("📺 VIDEO: OFF")
         self.lbl_vid_status.setStyleSheet("color: #f44336; background: transparent;")
 
     def open_pattern_designer(self):
         d = PatternDialog(self)
-        if d.exec(): self.send_cmd(f"EXT mled g {d.pattern_string}")
+        if d.exec():
+            self.send_cmd(f"EXT mled g {d.pattern_string}")
 
     def toggle_gamepad(self, state):
         if state == 2:
@@ -386,15 +396,29 @@ class TelloFullPanel(QWidget):
             self.rs.update_pos(0, 0)
 
     def update_visualizer_sticks(self, axes):
-        if len(axes) == 4: self.ls.update_pos(axes[0], axes[1]); self.rs.update_pos(axes[2], axes[3])
-
-    def keyPressEvent(self, e):
-        keys = {Qt.Key.Key_Space: 'takeoff', Qt.Key.Key_L: 'land', Qt.Key.Key_Up: 'forward 50',
-                Qt.Key.Key_Down: 'back 50'}
-        if e.key() in keys: self.send_cmd(keys[e.key()])
+        if len(axes) == 4:
+            self.ls.update_pos(axes[0], axes[1])
+            self.rs.update_pos(axes[2], axes[3])
 
     def toggle_ml(self):
-        if not hasattr(self.video_thread, "ml_enabled"):
-            self.video_thread.ml_enabled = False
+        if self.ml_worker is None:
+            return
 
         self.video_thread.ml_enabled = not self.video_thread.ml_enabled
+
+        if self.video_thread.ml_enabled:
+            self.btn_ml.setText("🤖 ML: ON")
+            self.btn_ml.setStyleSheet(
+                "background-color: #2e7d32; color: white; min-height: 35px; border: none;")
+        else:
+            self.btn_ml.setText("🤖 ML: OFF")
+            self.btn_ml.setStyleSheet(
+                "background-color: #455a64; color: white; min-height: 35px; border: none;")
+            # Clear the overlay so nothing lingers on screen
+            self.video_thread.set_prediction([])
+
+    def keyPressEvent(self, e):
+        keys = {Qt.Key.Key_Space: 'takeoff', Qt.Key.Key_L: 'land',
+                Qt.Key.Key_Up: 'forward 50', Qt.Key.Key_Down: 'back 50'}
+        if e.key() in keys:
+            self.send_cmd(keys[e.key()])
