@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QWidget, QPushButton, QGridLayout, QVBoxLayout,
                              QHBoxLayout, QLineEdit, QSlider, QFrame, QLabel,
-                             QSizePolicy, QDialog, QCheckBox)
+                             QSizePolicy, QDialog, QCheckBox, QComboBox)
 from PyQt6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QFontMetrics
 from PyQt6.QtCore import Qt, QTimer, QRectF
 
@@ -191,6 +191,10 @@ class TelloFullPanel(QWidget):
         self.gp_worker = gamepad
         self.ml_worker = ml_worker
 
+        self.video_thread.status_message.connect(self.handle_video_status)
+        self.video_thread.recording_state_changed.connect(self.handle_recording_state)
+        self.video_thread.snapshot_saved.connect(self.handle_snapshot_saved)
+
         self.initUI()
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -204,6 +208,9 @@ class TelloFullPanel(QWidget):
             QPushButton { background-color: #e0e0e0; border: 1px solid #999; font-weight: bold; min-height: 40px; border-radius: 4px; color: #333; font-size: 12px; padding: 4px; }
             QPushButton:pressed { background-color: #bbbbbb; }
             QLineEdit { background-color: white; border-radius: 4px; padding: 5px; color: black; font-weight: bold; min-height: 35px; }
+            QComboBox { background-color: #0a1424; border: 1px solid #334466; border-radius: 4px; padding: 6px 10px; color: white; min-height: 36px; font-weight: bold; }
+            QComboBox::drop-down { border: none; width: 24px; }
+            QComboBox QAbstractItemView { background-color: #0a1424; color: white; selection-background-color: #00d4ff; selection-color: #0a1424; }
             QLabel#Terminal { background-color: #000; color: #0f0; font-family: 'Courier New'; font-weight: bold; padding-left: 15px; border-right: 2px solid #334466; }
             QFrame#HeaderBar { background-color: #000; border: 2px solid #334466; border-radius: 6px; }
             QLabel#StatLabel { color: #00d4ff; font-size: 12px; font-weight: bold; background: transparent; }
@@ -224,6 +231,8 @@ class TelloFullPanel(QWidget):
         header_layout.setContentsMargins(0, 0, 15, 0)
         header_layout.setSpacing(15)
         self.terminal_display = QLabel(" > READY FOR COMMANDS")
+        if self.video_thread.demo_mode:
+            self.terminal_display.setText(" > DEMO MODE READY")
         self.terminal_display.setObjectName("Terminal")
         header_layout.addWidget(self.terminal_display, 1)
         self.lbl_bat = QLabel("🔋 --%")
@@ -235,9 +244,16 @@ class TelloFullPanel(QWidget):
         self.lbl_vid_status = QLabel("📺 VIDEO: OFF")
         self.lbl_vid_status.setStyleSheet(
             "color: #f44336; font-size: 11px; font-weight: bold; background: transparent;")
+        self.lbl_filter_status = QLabel("🎛️ NORMAL")
+        self.lbl_filter_status.setObjectName("StatLabel")
+        self.lbl_rec_status = QLabel("⏺ REC OFF")
+        self.lbl_rec_status.setStyleSheet(
+            "color: #f44336; font-size: 11px; font-weight: bold; background: transparent;")
         header_layout.addWidget(self.lbl_bat)
         header_layout.addWidget(self.lbl_temp)
         header_layout.addWidget(self.lbl_speed)
+        header_layout.addWidget(self.lbl_filter_status)
+        header_layout.addWidget(self.lbl_rec_status)
         header_layout.addWidget(self.lbl_vid_status)
         main_vbox.addWidget(self.header_frame)
 
@@ -279,10 +295,44 @@ class TelloFullPanel(QWidget):
         self.btn_ml = self.create_btn('🤖 ML: OFF')
         self.btn_ml.clicked.connect(self.toggle_ml)
         self.btn_ml.setStyleSheet("background-color: #455a64; color: white; min-height: 35px; border: none;")
+        if self.ml_worker is None:
+            self.btn_ml.setText("🤖 ML: N/A")
+            self.btn_ml.setEnabled(False)
 
         stack_layout.addWidget(em)
         stack_layout.addWidget(self.btn_ml)
         m_lay.addLayout(stack_layout, 3, 1)
+
+        stream_tools = QFrame()
+        stream_tools_lay = QVBoxLayout(stream_tools)
+        stream_tools_lay.setContentsMargins(0, 6, 0, 0)
+        stream_tools_lay.setSpacing(6)
+
+        filter_row = QHBoxLayout()
+        filter_lbl = QLabel("VIDEO FILTER")
+        filter_lbl.setStyleSheet("color: #00d4ff; font-size: 10px; font-weight: bold;")
+        self.filter_combo = QComboBox()
+        self.filter_combo.addItem("Normal", "normal")
+        self.filter_combo.addItem("Gray", "gray")
+        self.filter_combo.addItem("Edges", "edges")
+        self.filter_combo.addItem("Night Vision", "night")
+        self.filter_combo.currentIndexChanged.connect(self.on_filter_changed)
+        filter_row.addWidget(filter_lbl)
+        filter_row.addStretch()
+        filter_row.addWidget(self.filter_combo)
+        stream_tools_lay.addLayout(filter_row)
+
+        record_row = QHBoxLayout()
+        self.btn_record = self.create_btn("⏺ Start REC")
+        self.btn_record.setStyleSheet("background-color: #b71c1c; color: white; min-height: 35px; border: none;")
+        self.btn_record.clicked.connect(self.toggle_recording)
+        self.btn_snapshot = self.create_btn("📷 Snapshot")
+        self.btn_snapshot.setStyleSheet("background-color: #1565c0; color: white; min-height: 35px; border: none;")
+        self.btn_snapshot.clicked.connect(self.take_snapshot)
+        record_row.addWidget(self.btn_record)
+        record_row.addWidget(self.btn_snapshot)
+        stream_tools_lay.addLayout(record_row)
+        m_lay.addWidget(stream_tools, 4, 0, 1, 3)
         mid_layout.addWidget(m_pnl, 3)
         main_vbox.addLayout(mid_layout, 6)
 
@@ -439,18 +489,25 @@ class TelloFullPanel(QWidget):
         self.ml_overlay.resize(self.video_display.size())
 
     def video_on(self):
+        if self.video_thread.isRunning():
+            self.handle_video_status("Video stream is already running.")
+            return
         self.send_cmd('streamon')
         QTimer.singleShot(1000, lambda: self.video_thread.start())
         self.lbl_vid_status.setText("📺 VIDEO: ON")
         self.lbl_vid_status.setStyleSheet("color: #4CAF50; background: transparent;")
 
     def video_off(self):
+        self.video_thread.stop_recording()
         self.send_cmd('streamoff')
         self.video_thread.stop()
+        self.video_thread.wait(1500)
         self.video_display.clear()
         self.video_display.setText("VIDEO OFF")
         self.lbl_vid_status.setText("📺 VIDEO: OFF")
         self.lbl_vid_status.setStyleSheet("color: #f44336; background: transparent;")
+        self.lbl_rec_status.setText("⏺ REC OFF")
+        self.lbl_rec_status.setStyleSheet("color: #f44336; font-size: 11px; font-weight: bold; background: transparent;")
 
     def open_pattern_designer(self):
         d = PatternDialog(self)
@@ -487,6 +544,42 @@ class TelloFullPanel(QWidget):
                 "background-color: #455a64; color: white; min-height: 35px; border: none;")
             self.ml_overlay.update_results([])
             self.ml_overlay.hide()
+
+    def on_filter_changed(self, index):
+        filter_mode = self.filter_combo.itemData(index)
+        if not filter_mode:
+            return
+        self.video_thread.set_filter_mode(filter_mode)
+        self.lbl_filter_status.setText(f"🎛️ {self.filter_combo.currentText().upper()}")
+
+    def toggle_recording(self):
+        if self.video_thread.recording_enabled:
+            self.video_thread.stop_recording()
+            return
+        self.video_thread.start_recording()
+
+    def take_snapshot(self):
+        self.video_thread.save_snapshot()
+
+    def handle_video_status(self, text):
+        self.terminal_display.setText(f" > {text}")
+
+    def handle_recording_state(self, is_recording, output_path):
+        if is_recording:
+            self.btn_record.setText("⏹ Stop REC")
+            self.btn_record.setStyleSheet("background-color: #e53935; color: white; min-height: 35px; border: none;")
+            self.lbl_rec_status.setText("⏺ REC ON")
+            self.lbl_rec_status.setStyleSheet("color: #4CAF50; font-size: 11px; font-weight: bold; background: transparent;")
+        else:
+            self.btn_record.setText("⏺ Start REC")
+            self.btn_record.setStyleSheet("background-color: #b71c1c; color: white; min-height: 35px; border: none;")
+            self.lbl_rec_status.setText("⏺ REC OFF")
+            self.lbl_rec_status.setStyleSheet("color: #f44336; font-size: 11px; font-weight: bold; background: transparent;")
+
+        self.lbl_rec_status.setToolTip(output_path or "")
+
+    def handle_snapshot_saved(self, output_path):
+        self.terminal_display.setText(f" > Snapshot saved to {output_path}")
 
     def keyPressEvent(self, e):
         keys = {Qt.Key.Key_Space: 'takeoff', Qt.Key.Key_L: 'land',
